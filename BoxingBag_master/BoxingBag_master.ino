@@ -50,7 +50,7 @@ void setup() {
 
   acceBag.setOutputDataRate(LIS3DHTR_DATARATE_400HZ);
 
-  acceBag.setFullScaleRange(LIS3DHTR_RANGE_16G);
+  acceBag.setFullScaleRange(LIS3DHTR_RANGE_2G);
   // --------------Accel Config------------------|
 
   // |--------------Wifi Config-------------------
@@ -92,16 +92,16 @@ void setup() {
 void print_accelerometers_to_client(WiFiClient& client) {
   wire.begin(D1, D2);
   client.print("BAG:");
-  //Read the acceleration in the x direction
-  client.print((int)acceBag.getAccelerationX()*1000);
+  // Read the acceleration in the x direction
+  client.print((int)(acceBag.getAccelerationX()*1000));
   client.print(":");
-  //Read the acceleration in the y direction
-  client.print((int)acceBag.getAccelerationY()*1000);
+  // Read the acceleration in the y direction
+  client.print((int)(acceBag.getAccelerationY()*1000));
   client.print(":");
-  //Read the acceleration in the z direction
-  client.print((int)acceBag.getAccelerationZ()*1000);
+  // Read the acceleration in the z direction
+  client.print((int)(acceBag.getAccelerationZ()*1000));
   client.print(":");
-  //Read the temperature
+  // Read the temperature
   client.println(acceBag.getTemperature());
 }
 
