@@ -1,3 +1,9 @@
+/*
+  Accelerometer readings for both hands (acceleration + tilt angle [no yaw])
+  Uses parts of modified code from Carbon Aeronautics [https://github.com/CarbonAeronautics/Part-XV-1DKalmanFilter/blob/main/ArduinoCode] for
+    angle and Kalman filter calculations.
+*/
+
 #include <ESP8266WiFi.h>        // Include the Wi-Fi library
 #include <DFRobot_LIS2DW12.h>
 #include <Wire.h>
@@ -23,6 +29,7 @@ IPAddress subnet(255, 255, 0, 0);
 
 int server_port = 8266;
 WiFiServer server(server_port);
+WiFiClient client;
 
 void print_wifi_info() {
   Serial.print("IP address:\t");
@@ -31,6 +38,94 @@ void print_wifi_info() {
   Serial.println(WiFi.gatewayIP());         // Send the IP address of the ESP8266 to the computer
   Serial.print("Mask:\t");
   Serial.println(WiFi.subnetMask());         // Send the IP address of the ESP8266 to the computer
+}
+
+uint32_t LoopTimer;
+float RateRollL, RatePitchL, RateYawL, RateRollR, RatePitchR, RateYawR;
+float RateCalibrationRollL, RateCalibrationPitchL, RateCalibrationYawL, RateCalibrationRollR, RateCalibrationPitchR, RateCalibrationYawR;
+int RateCalibrationNumber;
+float KalmanAngleRollL=0, KalmanAngleRollR=0, KalmanUncertaintyAngleRollL=2*2, KalmanUncertaintyAngleRollR=2*2,
+      KalmanAnglePitchL=0, KalmanAnglePitchR=0, KalmanUncertaintyAnglePitchL=2*2, KalmanUncertaintyAnglePitchR=2*2,
+      Kalman1DOutputL[]={0,0},
+      Kalman1DOutputR[]={0,0};
+void kalman_1d(float KalmanState, float KalmanUncertainty, float KalmanInput, float KalmanMeasurement, float* Kalman1DOutput) {
+  KalmanState=KalmanState+0.004*KalmanInput;
+  KalmanUncertainty=KalmanUncertainty + 0.004 * 0.004 * 4 * 4;
+  float KalmanGain=KalmanUncertainty * 1/(1*KalmanUncertainty + 3 * 3);
+  KalmanState=KalmanState+KalmanGain * (KalmanMeasurement-KalmanState);
+  KalmanUncertainty=(1-KalmanGain) * KalmanUncertainty;
+  Kalman1DOutput[0]=KalmanState; 
+  Kalman1DOutput[1]=KalmanUncertainty;
+}
+
+void print_accelerometers_to_client(WiFiClient& client, bool dry_run = false) {
+  wire.begin(D1, D2);
+  int16_t accLX = acceL.readAccX(),
+          accLY = acceL.readAccY(),
+          accLZ = acceL.readAccZ();
+  wire.begin(D5, D6);
+  int16_t accRX = acceR.readAccX(),
+          accRY = acceR.readAccY(),
+          accRZ = acceR.readAccZ();
+  float AngleRollL = atan(accLY / sqrt(accLX * accLX + accLZ * accLZ)) * 1 / (3.142/180),
+        AnglePitchL = -atan(accLX / sqrt(accLY * accLY + accLZ * accLZ)) * 1 / (3.142/180),
+        AngleRollR = atan(accRY / sqrt(accRX * accRX + accRZ * accRZ)) * 1 / (3.142/180),
+        AnglePitchR = -atan(accRX / sqrt(accRY * accRY + accRZ * accRZ)) * 1 / (3.142/180);
+
+  // Kalman filter calibration
+  // Left Hand
+  RateRollL-=RateCalibrationRollL;
+  RatePitchL-=RateCalibrationPitchL;
+  RateYawL-=RateCalibrationYawL;
+  kalman_1d(KalmanAngleRollL, KalmanUncertaintyAngleRollL, RateRollL, AngleRollL, Kalman1DOutputL);
+  KalmanAngleRollL=Kalman1DOutputL[0]; 
+  KalmanUncertaintyAngleRollL=Kalman1DOutputL[1];
+  kalman_1d(KalmanAnglePitchL, KalmanUncertaintyAnglePitchL, RatePitchL, AnglePitchL, Kalman1DOutputL);
+  KalmanAnglePitchL=Kalman1DOutputL[0]; 
+  KalmanUncertaintyAnglePitchL=Kalman1DOutputL[1];
+
+  // Right Hand
+  RateRollR-=RateCalibrationRollR;
+  RatePitchR-=RateCalibrationPitchR;
+  RateYawR-=RateCalibrationYawR;
+  kalman_1d(KalmanAngleRollR, KalmanUncertaintyAngleRollR, RateRollR, AngleRollR, Kalman1DOutputR);
+  KalmanAngleRollR=Kalman1DOutputR[0]; 
+  KalmanUncertaintyAngleRollR=Kalman1DOutputR[1];
+  kalman_1d(KalmanAnglePitchR, KalmanUncertaintyAnglePitchR, RatePitchR, AnglePitchR, Kalman1DOutputR);
+  KalmanAnglePitchR=Kalman1DOutputR[0]; 
+  KalmanUncertaintyAnglePitchR=Kalman1DOutputR[1];
+  
+  if (dry_run) return;
+
+  client.print("GLOVES:");
+  // client.print("xL: ");
+  //Read the acceleration in the x direction
+  client.print(accLX);
+  client.print(":");
+  // client.print(" mg \tyL: ");
+  //Read the acceleration in the y direction
+  client.print(accLY);
+  client.print(":");
+  // client.print(" mg \tzL: ");
+  //Read the acceleration in the z direction
+  client.print(accLZ);
+  
+  client.print(":");
+  // client.print(" mg \txR: ");
+  //Read the acceleration in the x direction
+  client.print(accRX);
+  client.print(":");
+  // client.print(" mg \tyR: ");
+  //Read the acceleration in the y direction
+  client.print(accRY);
+  client.print(":");
+  // client.print(" mg \tzR: ");
+  //Read the acceleration in the z direction
+  client.print(accRZ);
+  // client.println(" mg");
+
+  client.print(":"); client.print(AngleRollL); client.print(":"); client.print(AnglePitchL);
+  client.print(":"); client.print(AngleRollR); client.print(":"); client.println(AnglePitchR);
 }
 
 void setup() {
@@ -130,7 +225,29 @@ void setup() {
   acceR.setPowerMode(DFRobot_LIS2DW12::eHighPerformanceLowNoise_14bit);
   // --------------Accel Config-----------------|
 
-  // |--------------Wifi Config-------------------
+  // |--------------Kalman state config----------
+  // Serial.println("Calibrating Kalman tilt ...");
+  // short iters = 2000;
+  // for (RateCalibrationNumber=0; RateCalibrationNumber<iters; ++RateCalibrationNumber) {
+  //   print_accelerometers_to_client(client, true);
+  //   RateCalibrationRollL+=RateRollL;
+  //   RateCalibrationPitchL+=RatePitchL;
+  //   RateCalibrationYawL+=RateYawL;
+  //   RateCalibrationRollR+=RateRollR;
+  //   RateCalibrationPitchR+=RatePitchR;
+  //   RateCalibrationYawR+=RateYawR;
+  //   delay(1);
+  // }
+  // RateCalibrationRollL/=iters;
+  // RateCalibrationPitchL/=iters;
+  // RateCalibrationYawL/=iters;
+  // RateCalibrationRollR/=iters;
+  // RateCalibrationPitchR/=iters;
+  // RateCalibrationYawR/=iters;
+  // Serial.println("Calibration done!");
+  // --------------Kalman state config----------|
+
+  // |--------------Wifi Config------------------
   if (!WiFi.config(local_IP, gateway, subnet)) {
     Serial.println("STA Failed to configure");
   }
@@ -152,43 +269,16 @@ void setup() {
 
   server.begin();
   // --------------Wifi Config-------------------|
+
+  // LoopTimer=micros();
 }
 
-void print_accelerometers_to_client(WiFiClient& client) {
-  wire.begin(D1, D2);
-  client.print("GLOVES:");
-  // client.print("xL: ");
-  //Read the acceleration in the x direction
-  client.print(acceL.readAccX());
-  client.print(":");
-  // client.print(" mg \tyL: ");
-  //Read the acceleration in the y direction
-  client.print(acceL.readAccY());
-  client.print(":");
-  // client.print(" mg \tzL: ");
-  //Read the acceleration in the z direction
-  client.print(acceL.readAccZ());
-  
-  wire.begin(D5, D6);
-  client.print(":");
-  // client.print(" mg \txR: ");
-  //Read the acceleration in the x direction
-  client.print(acceR.readAccX());
-  client.print(":");
-  // client.print(" mg \tyR: ");
-  //Read the acceleration in the y direction
-  client.print(acceR.readAccY());
-  client.print(":");
-  // client.print(" mg \tzR: ");
-  //Read the acceleration in the z direction
-  client.println(acceR.readAccZ());
-  // client.println(" mg");
-}
+
 
 void loop() { 
   while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
     delay(1000);
-    Serial.println("no active connection");
+    Serial.println("No active connection.");
     disconnected = true;
   }
 
@@ -199,14 +289,14 @@ void loop() {
   }
 
   // Setup socket connection
-  WiFiClient client = server.available();
+  client = server.available();
   
   if (client) {
     Serial.println("Socket acquired from client");
 
     if(client.connected())
     {
-      Serial.println("Client connected");
+      Serial.println("Client connected.");
     }
     
     while(client.connected()){     
@@ -221,8 +311,10 @@ void loop() {
         client.write(Serial.read());
       }
       delay(50);
+      // while (micros() - LoopTimer < 8000);
+      // LoopTimer=micros();
     }
     client.stop();
-    Serial.println("Client disconnected");
+    Serial.println("Client disconnected.");
   }
 }
