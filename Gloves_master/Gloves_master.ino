@@ -134,7 +134,7 @@ void setup() {
   wire.begin(D1, D2);
 
   while(!acceL.begin()){
-     Serial.println("LEFT: Communication failed, check the connection and I2C address setting when using I2C communication.");
+     Serial.println("LEFT: Communication failed, check the connection and I2C address setting when using I2C communication. CHECK THE CHANNEL!");
      delay(1000);
   }
   
@@ -211,7 +211,7 @@ void setup() {
   // Transition to other 2 pins
   wire.begin(D5, D6);
   while(!acceR.begin()){
-     Serial.println("RIGHT: Communication failed, check the connection and I2C address setting when using I2C communication.");
+     Serial.println("RIGHT: Communication failed, check the connection and I2C address setting when using I2C communication. CHECK THE CHANNEL!");
      delay(1000);
   }
   Serial.print("chip id (RIGHT): ");
